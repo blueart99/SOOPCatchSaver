@@ -5,6 +5,7 @@
 
     <application
         android:label="SOOP Catch Saver"
+        android:icon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
