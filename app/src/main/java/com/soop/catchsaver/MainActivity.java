@@ -21,10 +21,15 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(32, 50, 32, 32);
+        layout.setPadding(32, 32, 32, 32);
         layout.setBackgroundColor(Color.rgb(18, 20, 27));
+
+        scrollView.addView(layout);
 
         TextView title = new TextView(this);
         title.setText("SOOP Catch Saver");
@@ -41,7 +46,7 @@ public class MainActivity extends Activity {
         layout.addView(subtitle);
 
         urlInput = new EditText(this);
-        urlInput.setHint("SOOP URL 또는 직접 MP4 주소 입력");
+        urlInput.setHint("SOOP URL 또는 MP4 주소 입력");
         urlInput.setTextColor(Color.WHITE);
         urlInput.setHintTextColor(Color.GRAY);
         urlInput.setSingleLine(true);
@@ -50,7 +55,7 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams inputParams =
                 new LinearLayout.LayoutParams(-1, -2);
-        inputParams.topMargin = 40;
+        inputParams.topMargin = 30;
         layout.addView(urlInput, inputParams);
 
         Button checkButton = new Button(this);
@@ -61,7 +66,7 @@ public class MainActivity extends Activity {
         status.setText("캐치 영상 URL을 입력해주세요.");
         status.setTextColor(Color.WHITE);
         status.setTextSize(15);
-        status.setPadding(0, 25, 0, 25);
+        status.setPadding(0, 20, 0, 20);
         layout.addView(status);
 
         Button openButton = new Button(this);
@@ -76,7 +81,7 @@ public class MainActivity extends Activity {
             String url = urlInput.getText().toString().trim();
 
             if (isSoopUrl(url)) {
-                status.setText("SOOP 주소 확인 완료!\n영상 페이지를 열 수 있습니다.");
+                status.setText("SOOP 주소 확인 완료!");
             } else {
                 status.setText("올바른 SOOP 주소를 입력해주세요.");
             }
@@ -87,7 +92,8 @@ public class MainActivity extends Activity {
 
             if (isSoopUrl(url)) {
                 try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    Intent intent = new Intent(
+                            Intent.ACTION_VIEW, Uri.parse(url));
                     startActivity(intent);
                 } catch (Exception e) {
                     status.setText("영상을 열 수 없습니다.");
@@ -107,9 +113,10 @@ public class MainActivity extends Activity {
                 if (!"https".equalsIgnoreCase(uri.getScheme())
                         || path == null
                         || !path.toLowerCase().endsWith(".mp4")) {
+
                     status.setText(
-                        "다운로드할 수 있는 직접 MP4 주소를 입력해주세요.\n" +
-                        "캐치 페이지 주소만으로는 다운로드할 수 없습니다."
+                            "직접 다운로드 가능한 HTTPS MP4 주소를 입력해주세요.\n" +
+                            "캐치 페이지 주소만으로는 다운로드할 수 없습니다."
                     );
                     return;
                 }
@@ -129,23 +136,28 @@ public class MainActivity extends Activity {
                 request.setTitle(filename);
                 request.setDescription("SOOP 영상 다운로드");
                 request.setMimeType("video/mp4");
+
                 request.setNotificationVisibility(
                         DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                 );
+
                 request.setDestinationInExternalPublicDir(
                         Environment.DIRECTORY_DOWNLOADS,
                         filename
                 );
 
                 manager.enqueue(request);
-                status.setText("다운로드를 시작했습니다.\n알림창에서 진행 상황을 확인하세요.");
+
+                status.setText(
+                        "다운로드를 시작했습니다.\n알림창에서 확인해주세요."
+                );
 
             } catch (Exception e) {
-                status.setText("다운로드를 시작할 수 없습니다. 주소를 확인해주세요.");
+                status.setText("다운로드를 시작할 수 없습니다.");
             }
         });
 
-        setContentView(layout);
+        setContentView(scrollView);
     }
 
     private boolean isSoopUrl(String url) {
