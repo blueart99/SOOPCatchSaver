@@ -2,15 +2,17 @@
 package com.soop.catchsaver;
 
 import android.app.Activity;
-import android.app.DownloadManager;
 import android.os.Bundle;
 import android.os.Environment;
 import android.graphics.Color;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
 import android.content.Context;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
+import android.provider.MediaStore;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,26 +21,24 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.util.Iterator;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.*;
+import java.util.regex.*;
 
 public class MainActivity extends Activity {
 
     EditText urlInput;
     TextView status;
-    Button resolveButton;
-    Button downloadButton;
+    Button resolveButton, downloadButton;
 
     String resolvedVideoUrl = "";
     String sourceUrl = "";
+    boolean downloading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         ScrollView scroll = new ScrollView(this);
-
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(32, 32, 32, 32);
@@ -53,7 +53,7 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("비로그인 공개 영상 주소 확인");
+        subtitle.setText("비로그인 공개 영상 다운로드");
         subtitle.setTextColor(Color.LTGRAY);
         subtitle.setGravity(Gravity.CENTER);
         layout.addView(subtitle);
@@ -63,8 +63,9 @@ public class MainActivity extends Activity {
         urlInput.setTextColor(Color.WHITE);
         urlInput.setHintTextColor(Color.GRAY);
         urlInput.setHint("SOOP 캐치 URL 입력");
-        urlInput.setText("https://vod.sooplive.com/player/211051473/catch");
-
+        urlInput.setText(
+                "https://vod.sooplive.com/player/211051473/catch"
+        );
         LinearLayout.LayoutParams inputParams =
                 new LinearLayout.LayoutParams(-1, -2);
         inputParams.topMargin = 30;
@@ -86,7 +87,7 @@ public class MainActivity extends Activity {
         layout.addView(openButton);
 
         downloadButton = new Button(this);
-        downloadButton.setText("MP4 다운로드");
+        downloadButton.setText("영상 다운로드");
         downloadButton.setEnabled(false);
         layout.addView(downloadButton);
 
@@ -101,7 +102,11 @@ public class MainActivity extends Activity {
             }
 
             try {
-                IntentHelper.open(this, input);
+                Intent intent = new Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(input)
+                );
+                startActivity(intent);
             } catch (Exception e) {
                 status.setText("영상을 열 수 없습니다.");
             }
@@ -135,14 +140,18 @@ public class MainActivity extends Activity {
 
         new Thread(() -> {
             try {
-                JSONObject response;
+                JSONObject response = null;
 
                 if (input.toLowerCase().contains("/catch")) {
-                    response = requestApi(
-                            "https://api.m.sooplive.co.kr/station/video/a/catchview",
-                            id,
-                            true
-                    );
+                    try {
+                        response = requestApi(
+                                "https://api.m.sooplive.co.kr/station/video/a/catchview",
+                                id,
+                                true
+                        );
+                    } catch (Exception ignored) {
+                        response = null;
+                    }
 
                     if (response == null) {
                         response = requestApi(
@@ -167,7 +176,7 @@ public class MainActivity extends Activity {
 
                 if (media == null) {
                     throw new Exception(
-                            "서버 응답에서 다운로드 가능한 영상 주소를 찾지 못했습니다."
+                            "다운로드 가능한 영상 주소를 찾지 못했습니다."
                     );
                 }
 
@@ -175,19 +184,19 @@ public class MainActivity extends Activity {
 
                 runOnUiThread(() -> {
                     resolvedVideoUrl = found;
+                    downloadButton.setEnabled(true);
 
                     if (found.toLowerCase().contains(".m3u8")) {
                         status.setText(
                                 "영상 주소 확인 완료!\n" +
                                 "영상 형식: HLS 스트리밍\n" +
-                                "현재 버전은 MP4 직접 다운로드만 지원합니다."
+                                "영상 다운로드 버튼을 눌러주세요."
                         );
                     } else {
-                        downloadButton.setEnabled(true);
                         status.setText(
                                 "영상 주소 확인 완료!\n" +
                                 "영상 형식: MP4\n" +
-                                "다운로드 버튼을 눌러주세요."
+                                "영상 다운로드 버튼을 눌러주세요."
                         );
                     }
 
@@ -197,8 +206,7 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     status.setText(
-                            "영상 주소 확인 실패\n" +
-                            e.getMessage()
+                            "영상 주소 확인 실패\n" + e.getMessage()
                     );
                     resolveButton.setEnabled(true);
                 });
@@ -207,16 +215,14 @@ public class MainActivity extends Activity {
     }
 
     private JSONObject requestApi(
-            String api,
-            String id,
-            boolean catchApi
+            String api, String id, boolean catchApi
     ) throws Exception {
 
         HttpURLConnection connection = null;
 
         try {
-            URL url = new URL(api);
-            connection = (HttpURLConnection) url.openConnection();
+            connection = (HttpURLConnection)
+                    new URL(api).openConnection();
 
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(15000);
@@ -228,33 +234,27 @@ public class MainActivity extends Activity {
                     "application/x-www-form-urlencoded"
             );
             connection.setRequestProperty(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 17) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36"
+                    "User-Agent", userAgent()
             );
             connection.setRequestProperty(
-                    "Origin",
-                    "https://www.sooplive.co.kr"
+                    "Origin", "https://www.sooplive.co.kr"
             );
-            connection.setRequestProperty(
-                    "Referer",
-                    sourceUrl
-            );
+            connection.setRequestProperty("Referer", sourceUrl);
 
             String fields;
 
             if (catchApi) {
-                fields =
-                        "nTitleNo=" + URLEncoder.encode(id, "UTF-8") +
+                fields = "nTitleNo=" +
+                        URLEncoder.encode(id, "UTF-8") +
                         "&nPageNo=1&nLimit=20";
             } else {
-                fields =
-                        "nTitleNo=" + URLEncoder.encode(id, "UTF-8") +
+                fields = "nTitleNo=" +
+                        URLEncoder.encode(id, "UTF-8") +
                         "&nApiLevel=10&nPlaylistIdx=0";
             }
 
-            try (OutputStream output = connection.getOutputStream()) {
-                output.write(fields.getBytes("UTF-8"));
-                output.flush();
+            try (OutputStream out = connection.getOutputStream()) {
+                out.write(fields.getBytes("UTF-8"));
             }
 
             int code = connection.getResponseCode();
@@ -267,7 +267,9 @@ public class MainActivity extends Activity {
                 throw new Exception("HTTP 오류: " + code);
             }
 
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            ByteArrayOutputStream buffer =
+                    new ByteArrayOutputStream();
+
             byte[] data = new byte[8192];
             int count;
 
@@ -277,13 +279,11 @@ public class MainActivity extends Activity {
 
             stream.close();
 
-            String result = buffer.toString("UTF-8");
-
             if (code < 200 || code >= 300) {
-                throw new Exception("SOOP 서버 HTTP 오류: " + code);
+                throw new Exception("서버 HTTP 오류: " + code);
             }
 
-            return new JSONObject(result);
+            return new JSONObject(buffer.toString("UTF-8"));
 
         } finally {
             if (connection != null) {
@@ -307,17 +307,11 @@ public class MainActivity extends Activity {
 
                 if (child instanceof String) {
                     String candidate = (String) child;
-
-                    if (isMediaUrl(candidate)) {
-                        return candidate;
-                    }
+                    if (isMediaUrl(candidate)) return candidate;
                 }
 
                 String found = findMediaInJson(child);
-
-                if (found != null) {
-                    return found;
-                }
+                if (found != null) return found;
             }
         }
 
@@ -326,10 +320,7 @@ public class MainActivity extends Activity {
 
             for (int i = 0; i < array.length(); i++) {
                 String found = findMediaInJson(array.opt(i));
-
-                if (found != null) {
-                    return found;
-                }
+                if (found != null) return found;
             }
         }
 
@@ -347,74 +338,358 @@ public class MainActivity extends Activity {
     }
 
     private void downloadVideo() {
-        if (resolvedVideoUrl.isEmpty()) {
-            status.setText("먼저 영상 주소를 확인해주세요.");
+        if (resolvedVideoUrl.isEmpty() || downloading) {
             return;
         }
 
         if (resolvedVideoUrl.toLowerCase().contains(".m3u8")) {
-            status.setText(
-                    "이 영상은 HLS 형식입니다.\n" +
-                    "HLS 다운로드 기능은 아직 추가되지 않았습니다."
-            );
+            downloadHls();
             return;
         }
 
-        try {
-            Uri uri = Uri.parse(resolvedVideoUrl);
+        status.setText(
+                "현재 MP4 직접 다운로드는 다음 단계에서 연결할 예정입니다."
+        );
+    }
 
-            String filename = "SOOP_Catch_" +
-                    extractVideoId(sourceUrl) + ".mp4";
+    private void downloadHls() {
+        downloading = true;
+        downloadButton.setEnabled(false);
+        resolveButton.setEnabled(false);
+        status.setText("HLS 재생목록을 분석하고 있습니다...");
 
-            DownloadManager manager =
-                    (DownloadManager) getSystemService(
-                            Context.DOWNLOAD_SERVICE
+        new Thread(() -> {
+            Uri savedUri = null;
+            File savedFile = null;
+
+            try {
+                String playlistUrl = resolvedVideoUrl;
+
+                // 마스터 재생목록이면 가장 높은 대역폭 선택
+                for (int depth = 0; depth < 3; depth++) {
+                    String playlist = fetchText(playlistUrl);
+
+                    String next = selectHighestVariant(
+                            playlist, playlistUrl
                     );
 
-            DownloadManager.Request request =
-                    new DownloadManager.Request(uri);
+                    if (next == null) break;
+                    playlistUrl = next;
+                }
 
-            request.setTitle(filename);
-            request.setDescription("SOOP 영상 다운로드");
-            request.setMimeType("video/mp4");
+                String playlist = fetchText(playlistUrl);
 
-            request.addRequestHeader("Referer", sourceUrl);
-            request.addRequestHeader(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 17) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36"
-            );
+                if (!playlist.contains("#EXT-X-ENDLIST")) {
+                    throw new Exception(
+                            "완료된 VOD 재생목록이 아닙니다. " +
+                            "실시간 스트림은 지원하지 않습니다."
+                    );
+                }
 
-            request.setNotificationVisibility(
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-            );
+                if (playlist.contains("#EXT-X-MAP")) {
+                    throw new Exception(
+                            "이 재생목록은 분할 MP4 형식입니다. " +
+                            "현재 버전은 TS 형식만 지원합니다."
+                    );
+                }
 
-            request.setDestinationInExternalPublicDir(
-                    Environment.DIRECTORY_DOWNLOADS,
-                    filename
-            );
+                if (playlist.contains("#EXT-X-BYTERANGE")) {
+                    throw new Exception(
+                            "부분 범위 재생목록은 현재 지원하지 않습니다."
+                    );
+                }
 
-            manager.enqueue(request);
+                if (hasUnsupportedEncryption(playlist)) {
+                    throw new Exception(
+                            "암호화된 스트림은 지원하지 않습니다."
+                    );
+                }
 
-            status.setText(
-                    "다운로드 요청을 보냈습니다.\n" +
-                    "알림창에서 진행 상태를 확인해주세요."
-            );
+                List<String> segments = new ArrayList<>();
+                String[] lines = playlist.split("\\r?\\n");
 
-        } catch (Exception e) {
-            status.setText("다운로드 요청 실패: " + e.getMessage());
+                for (String line : lines) {
+                    line = line.trim();
+
+                    if (line.isEmpty() || line.startsWith("#")) {
+                        continue;
+                    }
+
+                    segments.add(new URL(
+                            new URL(playlistUrl), line
+                    ).toString());
+                }
+
+                if (segments.isEmpty()) {
+                    throw new Exception("영상 조각이 없습니다.");
+                }
+
+                String filename = "SOOP_Catch_" +
+                        extractVideoId(sourceUrl) + ".ts";
+
+                OutputStream output;
+
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues values = new ContentValues();
+                    values.put(
+                            MediaStore.MediaColumns.DISPLAY_NAME,
+                            filename
+                    );
+                    values.put(
+                            MediaStore.MediaColumns.MIME_TYPE,
+                            "video/mp2t"
+                    );
+                    values.put(
+                            MediaStore.MediaColumns.RELATIVE_PATH,
+                            Environment.DIRECTORY_DOWNLOADS
+                    );
+                    values.put(
+                            MediaStore.MediaColumns.IS_PENDING, 1
+                    );
+
+                    savedUri = getContentResolver().insert(
+                            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                            values
+                    );
+
+                    if (savedUri == null) {
+                        throw new Exception("저장 위치를 만들 수 없습니다.");
+                    }
+
+                    output = getContentResolver().openOutputStream(
+                            savedUri, "w"
+                    );
+
+                } else {
+                    File folder = getExternalFilesDir(
+                            Environment.DIRECTORY_MOVIES
+                    );
+
+                    if (folder == null) {
+                        throw new Exception("저장 폴더를 찾을 수 없습니다.");
+                    }
+
+                    savedFile = new File(folder, filename);
+                    output = new FileOutputStream(savedFile);
+                }
+
+                if (output == null) {
+                    throw new Exception("파일을 열 수 없습니다.");
+                }
+
+                try (OutputStream out = output) {
+                    byte[] buffer = new byte[32768];
+
+                    for (int i = 0; i < segments.size(); i++) {
+                        final int current = i + 1;
+                        final int total = segments.size();
+
+                        runOnUiThread(() -> status.setText(
+                                "영상 다운로드 중...\n" +
+                                current + " / " + total + " 조각"
+                        ));
+
+                        HttpURLConnection connection = openGet(
+                                segments.get(i)
+                        );
+
+                        try {
+                            int code = connection.getResponseCode();
+
+                            if (code < 200 || code >= 300) {
+                                throw new Exception(
+                                        "영상 조각 다운로드 오류: HTTP " + code
+                                );
+                            }
+
+                            try (InputStream in =
+                                         connection.getInputStream()) {
+                                int count;
+
+                                while ((count = in.read(buffer)) != -1) {
+                                    out.write(buffer, 0, count);
+                                }
+                            }
+                        } finally {
+                            connection.disconnect();
+                        }
+                    }
+
+                    out.flush();
+                }
+
+                if (savedUri != null && Build.VERSION.SDK_INT >= 29) {
+                    ContentValues done = new ContentValues();
+                    done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+
+                    getContentResolver().update(
+                            savedUri, done, null, null
+                    );
+                }
+
+                runOnUiThread(() -> {
+                    status.setText(
+                            "다운로드 완료!\n" +
+                            "파일: " + filename + "\n" +
+                            "저장 위치: Downloads\n" +
+                            "파일 형식: MPEG-TS"
+                    );
+                });
+
+            } catch (Exception e) {
+                if (savedUri != null) {
+                    getContentResolver().delete(
+                            savedUri, null, null
+                    );
+                }
+
+                if (savedFile != null && savedFile.exists()) {
+                    savedFile.delete();
+                }
+
+                String message = e.getMessage();
+
+                runOnUiThread(() -> status.setText(
+                        "HLS 다운로드 실패\n" +
+                        (message == null ? "알 수 없는 오류" : message)
+                ));
+
+            } finally {
+                downloading = false;
+
+                runOnUiThread(() -> {
+                    downloadButton.setEnabled(
+                            !resolvedVideoUrl.isEmpty()
+                    );
+                    resolveButton.setEnabled(true);
+                });
+            }
+        }).start();
+    }
+
+    private String selectHighestVariant(
+            String playlist, String baseUrl
+    ) throws Exception {
+
+        String[] lines = playlist.split("\\r?\\n");
+
+        long bestBandwidth = -1;
+        String bestUrl = null;
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+
+            if (!line.startsWith("#EXT-X-STREAM-INF:")) {
+                continue;
+            }
+
+            Matcher matcher = Pattern.compile(
+                    "BANDWIDTH=(\\d+)"
+            ).matcher(line);
+
+            long bandwidth = 0;
+
+            if (matcher.find()) {
+                bandwidth = Long.parseLong(matcher.group(1));
+            }
+
+            for (int j = i + 1; j < lines.length; j++) {
+                String candidate = lines[j].trim();
+
+                if (candidate.isEmpty()) continue;
+                if (candidate.startsWith("#")) continue;
+
+                if (bandwidth > bestBandwidth) {
+                    bestBandwidth = bandwidth;
+                    bestUrl = new URL(
+                            new URL(baseUrl), candidate
+                    ).toString();
+                }
+
+                break;
+            }
+        }
+
+        return bestUrl;
+    }
+
+    private boolean hasUnsupportedEncryption(String playlist) {
+        String[] lines = playlist.split("\\r?\\n");
+
+        for (String line : lines) {
+            String upper = line.trim().toUpperCase();
+
+            if (upper.startsWith("#EXT-X-KEY:")) {
+                if (!upper.contains("METHOD=NONE")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private String fetchText(String address) throws Exception {
+        HttpURLConnection connection = openGet(address);
+
+        try {
+            int code = connection.getResponseCode();
+
+            if (code < 200 || code >= 300) {
+                throw new Exception(
+                        "재생목록 HTTP 오류: " + code
+                );
+            }
+
+            ByteArrayOutputStream buffer =
+                    new ByteArrayOutputStream();
+
+            try (InputStream in = connection.getInputStream()) {
+                byte[] data = new byte[8192];
+                int count;
+
+                while ((count = in.read(data)) != -1) {
+                    buffer.write(data, 0, count);
+                }
+            }
+
+            return buffer.toString("UTF-8");
+
+        } finally {
+            connection.disconnect();
         }
     }
 
-    private String extractVideoId(String input) {
-        Pattern pattern = Pattern.compile(
-                "/player/(\\d+)"
+    private HttpURLConnection openGet(String address)
+            throws Exception {
+
+        HttpURLConnection connection =
+                (HttpURLConnection) new URL(address).openConnection();
+
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(20000);
+        connection.setReadTimeout(60000);
+        connection.setRequestProperty("User-Agent", userAgent());
+        connection.setRequestProperty("Referer", sourceUrl);
+        connection.setRequestProperty(
+                "Origin", "https://www.sooplive.co.kr"
         );
 
-        Matcher matcher = pattern.matcher(input);
+        return connection;
+    }
 
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
+    private String userAgent() {
+        return "Mozilla/5.0 (Linux; Android 17) " +
+                "AppleWebKit/537.36 Chrome/130.0.0.0 " +
+                "Mobile Safari/537.36";
+    }
+
+    private String extractVideoId(String input) {
+        Matcher matcher = Pattern.compile(
+                "/player/(\\d+)"
+        ).matcher(input);
+
+        if (matcher.find()) return matcher.group(1);
 
         return null;
     }
@@ -434,18 +709,6 @@ public class MainActivity extends Activity {
 
         } catch (Exception e) {
             return false;
-        }
-    }
-
-    private static class IntentHelper {
-        static void open(Activity activity, String url) {
-            android.content.Intent intent =
-                    new android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            Uri.parse(url)
-                    );
-
-            activity.startActivity(intent);
         }
     }
 }
